@@ -437,6 +437,23 @@ code {
     margin-bottom: 24px;
 }
 
+/* 引言·作者故事小标题与分隔 */
+.author-story-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--gray-800);
+    margin-top: 0;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--primary-200);
+}
+
+.section-divider {
+    border: none;
+    border-top: 1px solid var(--gray-200);
+    margin: 32px 0;
+}
+
 /* ============================================
    组件样式
    ============================================ */
@@ -567,6 +584,23 @@ code {
 }
 
 .link-list a:hover {
+    text-decoration: underline;
+}
+
+/* 正文内嵌链接段落（链接不单独列在文末） */
+.inline-refs {
+    margin: 1em 0;
+    line-height: 1.75;
+}
+
+.inline-refs a {
+    color: var(--primary-600);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+.inline-refs a:hover {
+    color: var(--primary-800);
     text-decoration: underline;
 }
 
@@ -778,10 +812,30 @@ code {
     border-bottom: none;
 }
 
+/* 二列对比表（如问题类型与表现） */
+.comparison-table.cols-2 .table-header,
+.comparison-table.cols-2 .table-row {
+    grid-template-columns: 0.8fr 2fr;
+}
+
 /* 四列对比表（如 NL2SQL 技术路径等） */
 .comparison-table.cols-4 .table-header,
 .comparison-table.cols-4 .table-row {
     grid-template-columns: 1fr 1.5fr 1fr 1.5fr;
+}
+
+/* 五列对比表（功能维度 + DataAgent + 传统 BI + AI 数据分析平台 + 低代码工具） */
+.comparison-table.cols-5 {
+    min-width: 720px;
+    overflow-x: auto;
+}
+.comparison-table.cols-5 .table-header,
+.comparison-table.cols-5 .table-row {
+    display: grid;
+    grid-template-columns: minmax(72px, 0.9fr) minmax(100px, 1.2fr) minmax(100px, 1.2fr) minmax(100px, 1.2fr) minmax(100px, 1.2fr);
+}
+.comparison-table.cols-5 .table-cell {
+    min-width: 0;
 }
 
 .table-cell {
