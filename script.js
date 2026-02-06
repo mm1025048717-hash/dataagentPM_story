@@ -28,8 +28,15 @@ function initNavigation() {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const sectionId = item.getAttribute('data-section');
+            const scrollToId = item.getAttribute('data-scroll-to');
             if (sectionId) {
                 showSection(sectionId);
+                if (scrollToId) {
+                    setTimeout(() => {
+                        const el = document.getElementById(scrollToId);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 150);
+                }
                 updateActiveNav(item);
                 closeSidebarOnMobile();
             }
