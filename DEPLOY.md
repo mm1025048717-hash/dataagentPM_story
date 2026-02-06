@@ -15,7 +15,7 @@
 
 ### 2. 在本地用 Git 推送代码
 
-在项目文件夹 **「陈宣任成长故事」** 下打开终端（PowerShell 或 CMD），依次执行：
+在项目文件夹 **dataagentPM_story** 下打开终端（PowerShell 或 CMD），依次执行：
 
 ```bash
 # 初始化 Git（如果还没初始化）
@@ -27,8 +27,8 @@ git add .
 # 第一次提交
 git commit -m "Initial commit: 陈宣任成长故事 / DataAgent PM Guide"
 
-# 把下面的 YOUR_REPO_NAME 换成你在 GitHub 上创建的仓库名
-git remote add origin https://github.com/mm1025048717-hash/YOUR_REPO_NAME.git
+# 仓库若已存在可跳过下一行；否则把 YOUR_REPO_NAME 换成你的仓库名
+# git remote add origin https://github.com/mm1025048717-hash/dataagentPM_story.git
 
 # 推送到 GitHub（主分支名为 main）
 git branch -M main
@@ -46,7 +46,7 @@ git push -u origin main
 1. 打开：https://vercel.com  
 2. 使用 **「Continue with GitHub」** 用你的 GitHub 账号登录  
 3. 点击 **「Add New…」→「Project」**  
-4. 在 **Import Git Repository** 里选择刚推送的仓库（如 `mm1025048717-hash/YOUR_REPO_NAME`）  
+4. 在 **Import Git Repository** 里选择仓库：**mm1025048717-hash/dataagentPM_story**  
 5. **Framework Preset** 保持 **Other** 或 **None**（静态站点无需构建）  
 6. **Root Directory** 保持默认（不填）  
 7. 点击 **「Deploy」**  
