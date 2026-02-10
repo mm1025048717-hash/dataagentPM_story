@@ -556,13 +556,25 @@ function isLikelyChinese(text) {
 // 单条文本翻译为中文（MyMemory 免费接口，限流防 429）
 const TRANSLATION_CACHE_KEY = 'pm_story_translation_cache';
 const TRANSLATION_RATE_LIMIT_KEY = 'pm_story_translation_429';
+const TRANSLATION_429_AT_KEY = 'pm_story_translation_429_at';
 const TRANSLATION_CACHE_MAX = 500;  // 最多缓存条数
+const TRANSLATION_MIN_INTERVAL_MS = 3000;  // 两次请求最小间隔，避免 429
+const TRANSLATION_429_COOLDOWN_MS = 24 * 60 * 60 * 1000;  // 收到 429 后 24 小时内不再请求，避免反复触发
 
 let _translationRateLimited = (function () {
     try {
-        return sessionStorage.getItem(TRANSLATION_RATE_LIMIT_KEY) === '1';
+        const set = sessionStorage.getItem(TRANSLATION_RATE_LIMIT_KEY) === '1';
+        const at = parseInt(sessionStorage.getItem(TRANSLATION_429_AT_KEY) || '0', 10);
+        if (set && at && (Date.now() - at < TRANSLATION_429_COOLDOWN_MS)) return true;
+        if (set && at && (Date.now() - at >= TRANSLATION_429_COOLDOWN_MS)) {
+            sessionStorage.removeItem(TRANSLATION_RATE_LIMIT_KEY);
+            sessionStorage.removeItem(TRANSLATION_429_AT_KEY);
+        }
+        return false;
     } catch (e) { return false; }
 })();
+
+let _lastTranslationRequestTime = 0;
 
 function getTranslationCache() {
     try {
@@ -589,11 +601,21 @@ async function translateTextToChinese(text) {
     const key = text.slice(0, 200);
     if (cache[key] !== undefined) return cache[key];
     try {
+        // 全局节流：保证两次请求间隔至少 TRANSLATION_MIN_INTERVAL_MS，避免 429
+        const elapsed = Date.now() - _lastTranslationRequestTime;
+        if (elapsed < TRANSLATION_MIN_INTERVAL_MS) {
+            await new Promise(r => setTimeout(r, TRANSLATION_MIN_INTERVAL_MS - elapsed));
+        }
         const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|zh`;
         const resp = await fetch(url);
+        _lastTranslationRequestTime = Date.now();
         if (resp.status === 429) {
             _translationRateLimited = true;
-            try { sessionStorage.setItem(TRANSLATION_RATE_LIMIT_KEY, '1'); } catch (e) {}
+            try {
+                sessionStorage.setItem(TRANSLATION_RATE_LIMIT_KEY, '1');
+                sessionStorage.setItem(TRANSLATION_429_AT_KEY, String(Date.now()));
+            } catch (e) {}
+            updateTranslateButtonState();
             return text;
         }
         if (!resp.ok) return text;
@@ -608,47 +630,67 @@ async function translateTextToChinese(text) {
     }
 }
 
-// 批量将情报列表的标题与描述翻译为中文（仅前 8 条 + 长延迟防 429，优先用缓存）
+// 批量将情报列表的标题翻译为中文（仅前 3 条 + 长延迟防 429，优先用缓存；不自动执行）
 let _translateFeedInProgress = false;
+
+function updateTranslateButtonState() {
+    const btn = document.getElementById('liveTranslateBtn');
+    if (!btn) return;
+    if (_translationRateLimited) {
+        btn.disabled = true;
+        btn.textContent = '翻译已达限流，请明日再试';
+    } else if (_translateFeedInProgress) {
+        btn.disabled = true;
+        btn.textContent = '翻译中...';
+    } else {
+        btn.disabled = false;
+        btn.textContent = '翻译为中文';
+    }
+}
+
 async function translateFeedToChinese() {
     if (_translateFeedInProgress || _translationRateLimited) return;
     const data = window._liveFeedData || [];
     if (!data.length) return;
     _translateFeedInProgress = true;
+    updateTranslateButtonState();
     const container = document.getElementById('liveFeedContainer');
     if (container) {
         container.innerHTML = `
             <div class="live-loading">
                 <div class="live-loading-spinner"></div>
-                <span>正在将部分标题翻译为中文（可选，限流中）...</span>
+                <span>正在将部分标题翻译为中文（免费接口限流较严，仅前几条）...</span>
             </div>
         `;
     }
     const delay = (ms) => new Promise(r => setTimeout(r, ms));
-    const toTranslate = data.slice(0, 8);  // 只翻译前 8 条，降低 429 概率
+    const toTranslate = data.slice(0, 3);  // 只翻译前 3 条，仅标题，大幅降低 429
     for (const item of toTranslate) {
         if (_translationRateLimited) break;
         if (!isLikelyChinese(item.title)) {
             item.titleZh = await translateTextToChinese(item.title);
-            await delay(1200);  // 拉长间隔，避免 429
+            await delay(2500);  // 拉长间隔，避免 429
         } else {
             item.titleZh = item.title;
         }
-        if (item.desc && !isLikelyChinese(item.desc) && !_translationRateLimited) {
-            item.descZh = await translateTextToChinese(item.desc.slice(0, 200));
-            await delay(1200);
-        } else {
-            item.descZh = item.desc || '';
-        }
+        item.descZh = item.desc || '';  // 描述不请求翻译，减少请求次数
     }
     setLiveCache(window._liveFeedData, _fetchSourceStats);
     renderLiveFeed();
     _translateFeedInProgress = false;
+    updateTranslateButtonState();
 }
 
 function initLiveMarketFeed() {
     const module = document.getElementById('liveMarketFeed');
     if (!module) return;
+
+    // 翻译按钮：按需翻译，避免自动请求触发 429
+    const translateBtn = document.getElementById('liveTranslateBtn');
+    if (translateBtn) {
+        translateBtn.addEventListener('click', () => translateFeedToChinese());
+        updateTranslateButtonState();
+    }
 
     // 绑定 Tab 事件
     const tabs = module.querySelectorAll('.live-tab');
@@ -668,11 +710,7 @@ function initLiveMarketFeed() {
         _fetchSourceStats = cached.stats || {};
         renderLiveFeed();
         updateTimestamp(cached.timestamp);
-        // 若缓存中尚无中文翻译，后台补翻
-        const hasTranslation = cached.data && cached.data.some(item => item.titleZh != null);
-        if (!hasTranslation && cached.data && cached.data.length > 0) {
-            translateFeedToChinese();
-        }
+        // 不再自动翻译，避免 MyMemory 免费接口 429；用户可点击「翻译为中文」按需翻译
         // 如果缓存超过 TTL，后台静默刷新
         if (Date.now() - cached.timestamp > LIVE_CACHE_TTL) {
             fetchAllSources();
@@ -1116,8 +1154,7 @@ async function fetchAllSources() {
     console.log('%c[情报中心] 抓取完成', 'color: #10b981; font-weight: bold;');
     console.table(_fetchSourceStats);
 
-    // 自动将英文标题与摘要翻译为中文（后台执行，完成后刷新列表）
-    translateFeedToChinese();
+    // 不再自动翻译，避免 429；用户可点击「翻译为中文」按需翻译
 }
 
 // ---- 辅助函数 ----
