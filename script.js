@@ -484,7 +484,7 @@ window.addEventListener('resize', () => {
 // ============================================
 
 console.log('%cDataAgent PM Guide', 'color: #2563eb; font-size: 20px; font-weight: bold;');
-console.log('%c从AI爱好者到DataAgent产品经理的完整成长指南', 'color: #6b7280; font-size: 14px;');
+console.log('%c致下一个在易问的产品经理 · DataAgent PM 培养手册', 'color: #6b7280; font-size: 14px;');
 console.log('%c快捷键: Ctrl+K 搜索, ESC 关闭侧边栏', 'color: #6b7280; font-size: 12px;');
 
 // ============================================
