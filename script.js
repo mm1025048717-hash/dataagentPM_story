@@ -558,7 +558,7 @@ const TRANSLATION_CACHE_KEY = 'pm_story_translation_cache';
 const TRANSLATION_RATE_LIMIT_KEY = 'pm_story_translation_429';
 const TRANSLATION_429_AT_KEY = 'pm_story_translation_429_at';
 const TRANSLATION_CACHE_MAX = 500;  // 最多缓存条数
-const TRANSLATION_MIN_INTERVAL_MS = 3000;  // 两次请求最小间隔，避免 429
+const TRANSLATION_MIN_INTERVAL_MS = 5000;  // 两次请求最小间隔 5 秒，降低 MyMemory 429
 const TRANSLATION_429_COOLDOWN_MS = 24 * 60 * 60 * 1000;  // 收到 429 后 24 小时内不再请求，避免反复触发
 
 let _translationRateLimited = (function () {
@@ -575,6 +575,18 @@ let _translationRateLimited = (function () {
 })();
 
 let _lastTranslationRequestTime = 0;
+
+// GitHub 未认证请求 60 次/小时，403 后本会话内不再请求，避免刷屏
+const GITHUB_403_KEY = 'pm_story_github_403';
+let _githubRateLimited = (function () {
+    try {
+        return sessionStorage.getItem(GITHUB_403_KEY) === '1';
+    } catch (e) { return false; }
+})();
+function _setGitHubRateLimited() {
+    _githubRateLimited = true;
+    try { sessionStorage.setItem(GITHUB_403_KEY, '1'); } catch (e) {}
+}
 
 function getTranslationCache() {
     try {
@@ -669,7 +681,7 @@ async function translateFeedToChinese() {
         if (_translationRateLimited) break;
         if (!isLikelyChinese(item.title)) {
             item.titleZh = await translateTextToChinese(item.title);
-            await delay(2500);  // 拉长间隔，避免 429
+            await delay(5000);  // 每条间隔 5 秒，配合 MyMemory 免费接口限流，降低 429
         } else {
             item.titleZh = item.title;
         }
@@ -750,6 +762,7 @@ function updateTimestamp(ts) {
 
 // ---- 数据源 1：GitHub Search API（免费，无需认证，60次/小时） ----
 async function fetchGitHub() {
+    if (_githubRateLimited) return [];
     const results = [];
     // 随机选 2 个关键词组并行搜索
     const shuffled = [...GITHUB_QUERIES].sort(() => Math.random() - 0.5);
@@ -757,10 +770,15 @@ async function fetchGitHub() {
 
     const promises = queries.map(async (query) => {
         try {
+            if (_githubRateLimited) return [];
             const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=updated&order=desc&per_page=6`;
             const resp = await fetch(url, {
                 headers: { 'Accept': 'application/vnd.github.v3+json' }
             });
+            if (resp.status === 403) {
+                _setGitHubRateLimited();
+                return [];
+            }
             if (!resp.ok) return [];
             const data = await resp.json();
             if (!data.items) return [];
@@ -913,29 +931,33 @@ async function fetchBICompetitor() {
         } catch (e) { /* 单查询失败不阻断 */ }
     }
     // GitHub：1 个 BI/竞品 相关搜索
-    try {
-        const q = GITHUB_BI_QUERIES[Math.floor(Math.random() * GITHUB_BI_QUERIES.length)];
-        const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=5`;
-        const resp = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.items) {
-                data.items.forEach(repo => {
-                    results.push({
-                        title: repo.full_name,
-                        desc: (repo.description || '').slice(0, 140),
-                        link: repo.html_url,
-                        date: repo.updated_at,
-                        source: 'GitHub (BI/竞品)',
-                        type: 'competitor',
-                        icon: '🔧',
-                        stars: repo.stargazers_count,
-                        language: repo.language
+    if (!_githubRateLimited) {
+        try {
+            const q = GITHUB_BI_QUERIES[Math.floor(Math.random() * GITHUB_BI_QUERIES.length)];
+            const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=5`;
+            const resp = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
+            if (resp.status === 403) {
+                _setGitHubRateLimited();
+            } else if (resp.ok) {
+                const data = await resp.json();
+                if (data.items) {
+                    data.items.forEach(repo => {
+                        results.push({
+                            title: repo.full_name,
+                            desc: (repo.description || '').slice(0, 140),
+                            link: repo.html_url,
+                            date: repo.updated_at,
+                            source: 'GitHub (BI/竞品)',
+                            type: 'competitor',
+                            icon: '🔧',
+                            stars: repo.stargazers_count,
+                            language: repo.language
+                        });
                     });
-                });
+                }
             }
-        }
-    } catch (e) { /* 静默 */ }
+        } catch (e) { /* 静默 */ }
+    }
     return results;
 }
 
@@ -1008,29 +1030,36 @@ async function fetchAITechTrack() {
         } catch (e) { /* 静默 */ }
     }
     // GitHub：OpenClaw / MCP 等
-    const ghQueries = [...AI_TECH_GITHUB].sort(() => Math.random() - 0.5).slice(0, 2);
-    for (const q of ghQueries) {
-        try {
-            const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=5`;
-            const resp = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
-            if (!resp.ok) continue;
-            const data = await resp.json();
-            if (data.items && data.items.length) {
-                data.items.forEach(repo => {
-                    addUnique({
-                        title: repo.full_name,
-                        desc: (repo.description || '').slice(0, 120),
-                        link: repo.html_url,
-                        date: repo.updated_at,
-                        source: 'GitHub (AI)',
-                        type: 'ai-tech',
-                        icon: '🔧',
-                        stars: repo.stargazers_count,
-                        language: repo.language
+    if (!_githubRateLimited) {
+        const ghQueries = [...AI_TECH_GITHUB].sort(() => Math.random() - 0.5).slice(0, 2);
+        for (const q of ghQueries) {
+            try {
+                if (_githubRateLimited) break;
+                const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=5`;
+                const resp = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
+                if (resp.status === 403) {
+                    _setGitHubRateLimited();
+                    break;
+                }
+                if (!resp.ok) continue;
+                const data = await resp.json();
+                if (data.items && data.items.length) {
+                    data.items.forEach(repo => {
+                        addUnique({
+                            title: repo.full_name,
+                            desc: (repo.description || '').slice(0, 120),
+                            link: repo.html_url,
+                            date: repo.updated_at,
+                            source: 'GitHub (AI)',
+                            type: 'ai-tech',
+                            icon: '🔧',
+                            stars: repo.stargazers_count,
+                            language: repo.language
+                        });
                     });
-                });
-            }
-        } catch (e) { /* 静默 */ }
+                }
+            } catch (e) { /* 静默 */ }
+        }
     }
     return results;
 }
@@ -1074,6 +1103,7 @@ async function fetchChinaRSS() {
 
 // ---- 数据源 6：GitHub Trending（通过搜索近期高星项目模拟） ----
 async function fetchGitHubTrending() {
+    if (_githubRateLimited) return [];
     try {
         // 搜索过去 7 天创建的高星 AI 项目
         const d = new Date();
@@ -1083,6 +1113,10 @@ async function fetchGitHubTrending() {
         const resp = await fetch(url, {
             headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
+        if (resp.status === 403) {
+            _setGitHubRateLimited();
+            return [];
+        }
         if (!resp.ok) return [];
         const data = await resp.json();
         if (!data.items) return [];
@@ -1104,7 +1138,7 @@ async function fetchGitHubTrending() {
 async function fetchAllSources() {
     showLoading();
     _fetchSourceStats = {};
-    _translationRateLimited = false;  // 刷新时重置翻译限流
+    // 不重置翻译限流：一旦 MyMemory 返回 429，本会话保持限流，避免反复触发
 
     const sources = [
         { name: 'GitHub', fn: fetchGitHub },
