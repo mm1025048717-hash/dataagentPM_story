@@ -2,6 +2,11 @@
 
 静态站点：DataAgent PM Guide（产品经理学习与成长故事）。
 
+## 在线访问
+
+- **Vercel 在线站**：<https://dataagent-pm-story.vercel.app/#intro>
+- **GitHub 仓库**：<https://github.com/mm1025048717-hash/dataagentPM_story>
+
 ## 本地运行
 
 直接双击打开 `index.html`，或用本地服务器：
